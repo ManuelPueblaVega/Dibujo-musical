@@ -1,0 +1,284 @@
+<html><head><base href="." target="_blank">
+<meta charset="UTF-8">
+<title>Sinestesia Musical</title>
+<style>
+    body {
+        margin: 0;
+        overflow: hidden;
+        background: white;
+        font-family: Arial, sans-serif;
+    }
+    
+    #canvas {
+        width: 100vw;
+        height: 100vh;
+    }
+    
+    .controls {
+        position: fixed;
+        top: 20px;
+        left: 20px;
+        background: rgba(0,0,0,0.1);
+        padding: 15px;
+        border-radius: 10px;
+        color: black;
+    }
+    
+    button {
+        background: #4CAF50;
+        border: none;
+        color: white;
+        padding: 10px 20px;
+        border-radius: 5px;
+        cursor: pointer;
+        margin: 5px;
+    }
+    
+    button:hover {
+        background: #45a049;
+    }
+    
+    .shape-container {
+        position: fixed;
+        right: 20px;
+        top: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .shape-btn {
+        width: 50px;
+        height: 50px;
+        border: 2px solid black;
+        border-radius: 5px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0,0,0,0.1);
+    }
+    
+    .color-picker {
+        margin: 10px 0;
+    }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<div class="controls">
+    <button id="playBtn">▶ Reproducir</button>
+    <button id="clearBtn">Limpiar</button>
+    <div>
+        <label for="colorPicker">Color:</label>
+        <input type="color" id="colorPicker" class="color-picker" value="#ff0000">
+    </div>
+</div>
+
+<div class="shape-container">
+    <div class="shape-btn" data-shape="line">━</div>
+    <div class="shape-btn" data-shape="circle">⚪</div>
+    <div class="shape-btn" data-shape="square">⬜</div>
+    <div class="shape-btn" data-shape="triangle">△</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const playBtn = document.getElementById('playBtn');
+const clearBtn = document.getElementById('clearBtn');
+const colorPicker = document.getElementById('colorPicker');
+
+let shapes = [];
+let currentShape = 'circle';
+let isPlaying = false;
+let playhead = 0;
+let isDrawing = false;
+let startX, startY;
+
+// Define rhythmic patterns for each shape
+const rhythmPatterns = {
+    circle: '8n',      // eighth note
+    square: '16n',     // sixteenth note
+    triangle: '4n',    // quarter note
+    line: '8t'         // eighth note triplet
+};
+
+function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+// Set up more complex synth with effects
+const reverb = new Tone.Reverb({
+    decay: 2,
+    wet: 0.2
+}).toDestination();
+
+const delay = new Tone.FeedbackDelay({
+    delayTime: 0.3,
+    feedback: 0.2
+}).connect(reverb);
+
+const synth = new Tone.PolySynth().connect(delay);
+
+const notes = ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5'];
+
+canvas.addEventListener('mousedown', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    startX = e.clientX - rect.left;
+    startY = e.clientY - rect.top;
+    isDrawing = true;
+
+    if (currentShape !== 'line') {
+        const color = colorPicker.value;
+        shapes.push({
+            x: startX,
+            y: startY,
+            color,
+            shape: currentShape,
+            size: 30,
+            note: notes[Math.floor((startY / canvas.height) * notes.length)]
+        });
+        synth.triggerAttackRelease(notes[Math.floor((startY / canvas.height) * notes.length)], rhythmPatterns[currentShape]);
+        draw();
+    }
+});
+
+canvas.addEventListener('mousemove', (e) => {
+    if (isDrawing && currentShape === 'line') {
+        const rect = canvas.getBoundingClientRect();
+        const endX = e.clientX - rect.left;
+        const endY = e.clientY - rect.top;
+        draw();
+        
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(endX, endY);
+        ctx.strokeStyle = colorPicker.value;
+        ctx.lineWidth = 5;
+        ctx.stroke();
+    }
+});
+
+canvas.addEventListener('mouseup', (e) => {
+    if (isDrawing && currentShape === 'line') {
+        const rect = canvas.getBoundingClientRect();
+        const endX = e.clientX - rect.left;
+        const endY = e.clientY - rect.top;
+        
+        shapes.push({
+            x: startX,
+            y: startY,
+            endX: endX,
+            endY: endY,
+            color: colorPicker.value,
+            shape: 'line',
+            note: notes[Math.floor((startY / canvas.height) * notes.length)]
+        });
+        
+        synth.triggerAttackRelease(notes[Math.floor((startY / canvas.height) * notes.length)], rhythmPatterns['line']);
+    }
+    isDrawing = false;
+    draw();
+});
+
+document.querySelectorAll('.shape-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        currentShape = e.target.dataset.shape;
+    });
+});
+
+clearBtn.addEventListener('click', () => {
+    shapes = [];
+    draw();
+});
+
+playBtn.addEventListener('click', () => {
+    if (!isPlaying) {
+        isPlaying = true;
+        playBtn.textContent = '⏸ Pausar';
+        Tone.start();
+        play();
+    } else {
+        isPlaying = false;
+        playBtn.textContent = '▶ Reproducir';
+    }
+});
+
+function play() {
+    if (!isPlaying) return;
+    
+    playhead = (playhead + 2) % canvas.width;
+    
+    shapes.forEach(shape => {
+        if (shape.shape === 'line') {
+            if (lineIntersectsPlayhead(shape.x, shape.y, shape.endX, shape.endY, playhead)) {
+                synth.triggerAttackRelease(shape.note, rhythmPatterns[shape.shape]);
+            }
+        } else if (Math.abs(shape.x - playhead) < 2) {
+            synth.triggerAttackRelease(shape.note, rhythmPatterns[shape.shape]);
+        }
+    });
+    
+    draw();
+    requestAnimationFrame(play);
+}
+
+function lineIntersectsPlayhead(x1, y1, x2, y2, playheadX) {
+    return (x1 <= playheadX && playheadX <= x2) || (x2 <= playheadX && playheadX <= x1);
+}
+
+function draw() {
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    if (isPlaying) {
+        ctx.beginPath();
+        ctx.moveTo(playhead, 0);
+        ctx.lineTo(playhead, canvas.height);
+        ctx.strokeStyle = '#666666';
+        ctx.stroke();
+    }
+    
+    shapes.forEach(shape => {
+        ctx.fillStyle = shape.color;
+        ctx.strokeStyle = shape.color;
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        
+        switch (shape.shape) {
+            case 'line':
+                ctx.moveTo(shape.x, shape.y);
+                ctx.lineTo(shape.endX, shape.endY);
+                ctx.stroke();
+                break;
+            case 'circle':
+                ctx.arc(shape.x, shape.y, shape.size, 0, Math.PI * 2);
+                ctx.fill();
+                break;
+            case 'square':
+                ctx.rect(shape.x - shape.size, shape.y - shape.size, 
+                        shape.size * 2, shape.size * 2);
+                ctx.fill();
+                break;
+            case 'triangle':
+                ctx.moveTo(shape.x, shape.y - shape.size);
+                ctx.lineTo(shape.x + shape.size, shape.y + shape.size);
+                ctx.lineTo(shape.x - shape.size, shape.y + shape.size);
+                ctx.closePath();
+                ctx.fill();
+                break;
+        }
+    });
+}
+
+draw();
+</script>
+</body></html>
